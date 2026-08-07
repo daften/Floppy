@@ -9,8 +9,6 @@ so no ticks-parsing or webhook-template quirks are needed here.
 
 import logging
 
-from app.models import MediaTypes
-
 from .base import BaseWebhookProcessor
 
 logger = logging.getLogger(__name__)
