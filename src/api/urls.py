@@ -1,8 +1,13 @@
 from django.urls import re_path
 
-from . import views
+from . import jellyfin_plugin_views, views
 
 urlpatterns = [
+    re_path(
+        r"^jellyfin-plugin/event/?$",
+        jellyfin_plugin_views.JellyfinPluginEventView.as_view(),
+        name="api_jellyfin_plugin_event",
+    ),
     re_path(r"^calendar/?$", views.CalendarView.as_view(), name="api_calendar"),
     re_path(
         r"^calendar/update/?$",

@@ -64,6 +64,15 @@ class ListenBrainzTokenAuthentication(BaseAuthentication):
 class APIKeyAuthentication(BaseAuthentication):
     """API Key Authentication."""
 
+    def authenticate_header(self, request):
+        """Return the WWW-Authenticate value so DRF answers 401, not 403.
+
+        This is needed so clients receive 401 for missing/invalid tokens
+        rather than 403, allowing proper differentiation between
+        unauthenticated and unauthorized requests.
+        """
+        return "X-API-Key"
+
     def authenticate(self, request):
         """Authenticate the user with API Key."""
         auth = request.headers.get("X-API-Key")
