@@ -170,6 +170,53 @@ class JellyfinPluginMovieTests(APITestCase):
         movie = Movie.objects.get(item__media_id="603", user=self.user)
         self.assertEqual(movie.status, Status.IN_PROGRESS.value)
 
+    @patch("app.providers.tmdb.movie")
+    def test_mark_played_completes_movie_without_a_play_event(self, mock_movie):
+        """Test mark_played completes a movie with no prior play event."""
+        mock_movie.return_value = {
+            "title": "The Matrix",
+            "image": "matrix.jpg",
+            "max_progress": 1,
+        }
+
+        response = self.client.post(
+            EVENT_URL,
+            {"event_type": "mark_played", "media_type": "movie", "tmdb_id": "603"},
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        movie = Movie.objects.get(item__media_id="603", user=self.user)
+        self.assertEqual(movie.status, Status.COMPLETED.value)
+
+    @patch("app.providers.tmdb.movie")
+    def test_mark_unplayed_deletes_movie(self, mock_movie):
+        """Test mark_unplayed removes an existing Movie instance."""
+        mock_movie.return_value = {
+            "title": "The Matrix",
+            "image": "matrix.jpg",
+            "max_progress": 1,
+        }
+
+        self.client.post(
+            EVENT_URL,
+            {"event_type": "mark_played", "media_type": "movie", "tmdb_id": "603"},
+            format="json",
+            **self.auth,
+        )
+        response = self.client.post(
+            EVENT_URL,
+            {"event_type": "mark_unplayed", "media_type": "movie", "tmdb_id": "603"},
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            Movie.objects.filter(item__media_id="603", user=self.user).exists(),
+        )
+
 
 class JellyfinPluginTvTests(APITestCase):
     """Tests for TV episode tracking via the plugin endpoint."""
