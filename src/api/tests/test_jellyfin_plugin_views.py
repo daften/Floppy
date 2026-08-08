@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
-from app.models import Movie, Status
+from app.models import TV, Episode, Movie, Season, Status
 
 EVENT_URL = "/api/v1/jellyfin-plugin/event/"
 
@@ -169,3 +169,47 @@ class JellyfinPluginMovieTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         movie = Movie.objects.get(item__media_id="603", user=self.user)
         self.assertEqual(movie.status, Status.IN_PROGRESS.value)
+
+
+class JellyfinPluginTvTests(APITestCase):
+    """Tests for TV episode tracking via the plugin endpoint."""
+
+    def setUp(self):
+        """Create a user with a known API token."""
+        self.user = get_user_model().objects.create_user(username="plugin-tv-user")
+        self.auth = {"HTTP_X_API_KEY": self.user.token}
+
+    @patch("app.providers.tmdb.tv_with_seasons")
+    def test_stop_with_played_to_completion_completes_episode(self, mock_tv):
+        """Test a completed episode stop event creates a completed Episode."""
+        mock_tv.return_value = {
+            "media_id": "1418",
+            "title": "The Big Bang Theory",
+            "image": "tbbt.jpg",
+            "season/1": {
+                "episodes": [{"episode_number": 1, "title": "Pilot"}],
+            },
+        }
+
+        response = self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "stop",
+                "media_type": "tv",
+                "tmdb_id": "1418",
+                "season": 1,
+                "episode": 1,
+                "series_title": "The Big Bang Theory",
+                "played_to_completion": True,
+            },
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        episode = Episode.objects.get(
+            item__media_id="1418",
+            item__season_number=1,
+            item__episode_number=1,
+        )
+        self.assertEqual(episode.status, Status.COMPLETED.value)
