@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
+from app import live_playback
 from app.models import TV, Episode, Movie, Season, Status
 
 EVENT_URL = "/api/v1/jellyfin-plugin/event/"
@@ -260,3 +261,114 @@ class JellyfinPluginTvTests(APITestCase):
             item__episode_number=1,
         )
         self.assertEqual(episode.status, Status.COMPLETED.value)
+
+
+class JellyfinPluginLivePlaybackTests(APITestCase):
+    """Tests for live-playback card updates via the plugin endpoint."""
+
+    def setUp(self):
+        """Create a user with a known API token."""
+        self.user = get_user_model().objects.create_user(username="plugin-live-user")
+        self.auth = {"HTTP_X_API_KEY": self.user.token}
+
+    def tearDown(self):
+        """Clear cached playback state created by these tests."""
+        live_playback.clear_user_playback_state(self.user.id)
+
+    @patch("app.providers.tmdb.movie")
+    def test_play_updates_live_playback_card(self, mock_movie):
+        """Test a play event updates the cached live-playback state."""
+        mock_movie.return_value = {
+            "title": "The Matrix",
+            "image": "matrix.jpg",
+            "max_progress": 1,
+        }
+
+        response = self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "play",
+                "media_type": "movie",
+                "tmdb_id": "603",
+                "title": "The Matrix",
+                "position_seconds": 30,
+                "duration_seconds": 8160,
+            },
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state = live_playback.get_user_playback_state(self.user.id)
+        self.assertIsNotNone(state)
+        self.assertEqual(state["status"], live_playback.PLAYBACK_STATUS_PLAYING)
+        self.assertEqual(state["media_id"], "603")
+
+    @patch("app.providers.tmdb.movie")
+    def test_pause_updates_live_playback_card(self, mock_movie):
+        """Test a pause event updates the cached state without tracking."""
+        mock_movie.return_value = {
+            "title": "The Matrix",
+            "image": "matrix.jpg",
+            "max_progress": 1,
+        }
+
+        self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "play",
+                "media_type": "movie",
+                "tmdb_id": "603",
+                "position_seconds": 30,
+                "duration_seconds": 8160,
+            },
+            format="json",
+            **self.auth,
+        )
+        response = self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "pause",
+                "media_type": "movie",
+                "tmdb_id": "603",
+                "position_seconds": 45,
+                "duration_seconds": 8160,
+            },
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state = live_playback.get_user_playback_state(self.user.id)
+        self.assertEqual(state["status"], live_playback.PLAYBACK_STATUS_PAUSED)
+
+    @patch("app.providers.tmdb.movie")
+    def test_stop_clears_live_playback_to_stopped(self, mock_movie):
+        """Test a stop event marks the cached state as stopped."""
+        mock_movie.return_value = {
+            "title": "The Matrix",
+            "image": "matrix.jpg",
+            "max_progress": 1,
+        }
+
+        self.client.post(
+            EVENT_URL,
+            {"event_type": "play", "media_type": "movie", "tmdb_id": "603"},
+            format="json",
+            **self.auth,
+        )
+        response = self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "stop",
+                "media_type": "movie",
+                "tmdb_id": "603",
+                "played_to_completion": True,
+            },
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state = live_playback.get_user_playback_state(self.user.id)
+        self.assertEqual(state["status"], live_playback.PLAYBACK_STATUS_STOPPED)
