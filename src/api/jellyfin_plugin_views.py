@@ -13,10 +13,8 @@ from rest_framework import views as drf_views
 from rest_framework.response import Response
 
 from api.authentication import APIKeyAuthentication
-from integrations.webhooks.jellyfin_plugin import (
-    SUPPORTED_EVENT_TYPES,
-    JellyfinPluginEventProcessor,
-)
+from integrations import tasks
+from integrations.webhooks.jellyfin_plugin import SUPPORTED_EVENT_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +85,13 @@ class JellyfinPluginEventView(drf_views.APIView):
                 f"Invalid media_type. Must be one of: {', '.join(_MEDIA_TYPES)}.",
             )
 
-        JellyfinPluginEventProcessor().process_event(payload, request.user)
+        if media_type == "tv" and (
+            payload.get("season") is None or payload.get("episode") is None
+        ):
+            return _error(
+                "season and episode are required when media_type is 'tv'.",
+            )
+
+        tasks.process_webhook.delay("jellyfin_plugin", payload, request.user.id)
 
         return Response({"status": "ok"}, status=HTTP.OK)

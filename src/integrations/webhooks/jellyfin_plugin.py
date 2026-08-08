@@ -28,8 +28,15 @@ _LIVE_PLAYBACK_EVENT_MAP = {
 class JellyfinPluginEventProcessor(BaseWebhookProcessor):
     """Processor for Floppy Jellyfin plugin events."""
 
-    def process_event(self, payload, user):
+    def process_payload(self, payload, user):
         """Process one event from the Floppy Jellyfin plugin."""
+        if not self._is_supported_event(payload.get("event_type")):
+            logger.warning(
+                "Ignoring unsupported Jellyfin plugin event_type: %s",
+                payload.get("event_type"),
+            )
+            return
+
         ids = self._extract_external_ids(payload)
 
         self._update_live_playback_state(payload, user, ids)
@@ -109,6 +116,7 @@ class JellyfinPluginEventProcessor(BaseWebhookProcessor):
         if media_type == MediaTypes.MOVIE.value:
             playback_media_type = MediaTypes.MOVIE.value
             media_id = ids.get("tmdb_id")
+            media_id = str(media_id) if media_id is not None else None
         else:
             playback_media_type = MediaTypes.EPISODE.value
             media_id, _, _ = self._find_tv_media_id(

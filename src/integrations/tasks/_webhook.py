@@ -19,6 +19,7 @@ WEBHOOK_PROCESSORS = {
     "seerr": "integrations.webhooks.seerr.SeerrWebhookProcessor",
     "kodi": "integrations.webhooks.kodi.KodiWebhookProcessor",
     "stremio": "integrations.webhooks.stremio.StremioWebhookProcessor",
+    "jellyfin_plugin": "integrations.webhooks.jellyfin_plugin.JellyfinPluginEventProcessor",
 }
 
 

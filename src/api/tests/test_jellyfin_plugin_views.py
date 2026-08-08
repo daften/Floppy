@@ -78,6 +78,16 @@ class JellyfinPluginEventViewTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_tv_event_missing_season_and_episode_returns_400(self):
+        """Test a tv-media event with no season/episode is rejected."""
+        response = self.client.post(
+            EVENT_URL,
+            {"event_type": "play", "media_type": "tv", "tmdb_id": "1418"},
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class JellyfinPluginMovieTests(APITestCase):
     """Tests for movie tracking via the plugin endpoint."""
@@ -409,3 +419,74 @@ class JellyfinPluginLivePlaybackTests(APITestCase):
         self.assertEqual(state["media_type"], MediaTypes.EPISODE.value)
         self.assertEqual(state["season_number"], 1)
         self.assertEqual(state["episode_number"], 1)
+
+    @patch("app.providers.tmdb.movie")
+    def test_stale_stop_for_different_movie_does_not_clear_active_card(
+        self,
+        mock_movie,
+    ):
+        """Test a stop event for stale media does not clobber the active card.
+
+        Regression test for the rating_key=media_id fix (commit f5191fa7):
+        without it (or without str-casting an integer tmdb_id), a stop event
+        for media that is no longer the active card could wrongly clear the
+        live-playback state for whatever *is* currently playing.
+        """
+        mock_movie.return_value = {
+            "title": "Movie",
+            "image": "movie.jpg",
+            "max_progress": 1,
+        }
+
+        # tmdb_id sent as a JSON integer (not string) to also cover the
+        # str-cast fix in _update_live_playback_state's movie branch.
+        self.client.post(
+            EVENT_URL,
+            {"event_type": "play", "media_type": "movie", "tmdb_id": 603},
+            format="json",
+            **self.auth,
+        )
+        self.client.post(
+            EVENT_URL,
+            {"event_type": "play", "media_type": "movie", "tmdb_id": 999},
+            format="json",
+            **self.auth,
+        )
+        response = self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "stop",
+                "media_type": "movie",
+                "tmdb_id": 603,
+                "played_to_completion": True,
+            },
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state = live_playback.get_user_playback_state(self.user.id)
+        self.assertIsNotNone(state)
+        self.assertEqual(state["media_id"], "999")
+        self.assertEqual(state["status"], live_playback.PLAYBACK_STATUS_PLAYING)
+
+        # A genuine stop for the currently-active movie (999, also sent as a
+        # JSON integer) must still clear the card. Without the str() cast on
+        # media_id, the int rating_key would never string-equal the cached
+        # str rating_key, so this stop would silently no-op and the card
+        # would stay stuck "playing" forever.
+        response = self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "stop",
+                "media_type": "movie",
+                "tmdb_id": 999,
+                "played_to_completion": True,
+            },
+            format="json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 200)
+        state = live_playback.get_user_playback_state(self.user.id)
+        self.assertIsNotNone(state)
+        self.assertEqual(state["status"], live_playback.PLAYBACK_STATUS_STOPPED)
