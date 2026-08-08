@@ -125,6 +125,7 @@ class JellyfinPluginEventProcessor(BaseWebhookProcessor):
             event_type=event_type,
             playback_media_type=playback_media_type,
             media_id=media_id,
+            rating_key=media_id,
             title=payload.get("title"),
             series_title=payload.get("series_title"),
             episode_title=(

@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
 from app import live_playback
-from app.models import TV, Episode, Movie, Season, Status
+from app.models import TV, Episode, MediaTypes, Movie, Season, Status
 
 EVENT_URL = "/api/v1/jellyfin-plugin/event/"
 
@@ -372,3 +372,40 @@ class JellyfinPluginLivePlaybackTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         state = live_playback.get_user_playback_state(self.user.id)
         self.assertEqual(state["status"], live_playback.PLAYBACK_STATUS_STOPPED)
+
+    @patch("app.providers.tmdb.tv_with_seasons")
+    def test_play_updates_live_playback_card_for_tv_episode(self, mock_tv):
+        """Test a play event for TV episode updates the cached live-playback state."""
+        mock_tv.return_value = {
+            "media_id": "1418",
+            "title": "The Big Bang Theory",
+            "image": "tbbt.jpg",
+            "season/1": {
+                "episodes": [{"episode_number": 1, "title": "Pilot"}],
+            },
+        }
+
+        response = self.client.post(
+            EVENT_URL,
+            {
+                "event_type": "play",
+                "media_type": "tv",
+                "tmdb_id": "1418",
+                "season": 1,
+                "episode": 1,
+                "series_title": "The Big Bang Theory",
+                "title": "Pilot",
+                "position_seconds": 120,
+                "duration_seconds": 2700,
+            },
+            format="json",
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state = live_playback.get_user_playback_state(self.user.id)
+        self.assertIsNotNone(state)
+        self.assertEqual(state["status"], live_playback.PLAYBACK_STATUS_PLAYING)
+        self.assertEqual(state["media_type"], MediaTypes.EPISODE.value)
+        self.assertEqual(state["season_number"], 1)
+        self.assertEqual(state["episode_number"], 1)
